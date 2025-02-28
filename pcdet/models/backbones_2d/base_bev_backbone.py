@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from functools import partial
 from pcdet.ops.norm_funcs.res_aware_bnorm import ResAwareBatchNorm2d
-from pcdet.ops.norm_funcs.fn_instance_norm import FnInstanceNorm
 
 def get_norm_func(norm_method, res_divs):
     if norm_method == 'Batch':
@@ -11,8 +10,9 @@ def get_norm_func(norm_method, res_divs):
     elif norm_method == 'ResAwareBatch':
         norm_fn = partial(ResAwareBatchNorm2d, num_resolutions=len(res_divs), \
                 eps=1e-3, momentum=0.01)
-    elif norm_method == 'Instance':
-        norm_fn = partial(FnInstanceNorm, eps=1e-3, momentum=0.01)
+    else:
+        print('Unkown normalization method in 2D backbone!')
+        norm_fn = None
     return norm_fn
 
 class BaseBEVBackbone(nn.Module):
