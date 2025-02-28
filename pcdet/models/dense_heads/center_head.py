@@ -7,7 +7,7 @@ from ..model_utils import model_nms_utils
 from ..model_utils import centernet_utils
 from ...utils import loss_utils
 from functools import partial
-
+from pcdet.ops.norm_funcs.res_aware_bnorm import ResAwareBatchNorm2d
 
 class SeparateHead(nn.Module):
     def __init__(self, input_channels, sep_head_dict, init_bias=-2.19, use_bias=False, norm_func=None):
@@ -55,6 +55,7 @@ class CenterHead(nn.Module):
         self.grid_size = grid_size
         self.point_cloud_range = point_cloud_range
         self.voxel_size = voxel_size
+        self.initial_voxel_size = voxel_size.copy()
         self.feature_map_stride = self.model_cfg.TARGET_ASSIGNER_CONFIG.get('FEATURE_MAP_STRIDE', None)
 
         self.class_names = class_names
@@ -71,7 +72,16 @@ class CenterHead(nn.Module):
         total_classes = sum([len(x) for x in self.class_names_each_head])
         assert total_classes == len(self.class_names), f'class_names_each_head={self.class_names_each_head}'
 
-        norm_func = partial(nn.BatchNorm2d, eps=self.model_cfg.get('BN_EPS', 1e-5), momentum=self.model_cfg.get('BN_MOM', 0.1))
+        res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
+        norm_method = self.model_cfg.get('NORM_METHOD', 'Batch')
+        if norm_method == 'ResAwareBatch':
+            norm_func = partial(ResAwareBatchNorm2d, num_resolutions=len(res_divs), \
+                    eps=self.model_cfg.get('BN_EPS', 1e-5),
+                    momentum=self.model_cfg.get('BN_MOM', 0.1))
+        else:
+            norm_func = partial(nn.BatchNorm2d, eps=self.model_cfg.get('BN_EPS', 1e-5),
+                    momentum=self.model_cfg.get('BN_MOM', 0.1))
+
         self.shared_conv = nn.Sequential(
             nn.Conv2d(
                 input_channels, self.model_cfg.SHARED_CONV_CHANNEL, 3, stride=1, padding=1,
@@ -381,6 +391,13 @@ class CenterHead(nn.Module):
             roi_scores[bs_idx, :num_boxes] = pred_dicts[bs_idx]['pred_scores']
             roi_labels[bs_idx, :num_boxes] = pred_dicts[bs_idx]['pred_labels']
         return rois, roi_scores, roi_labels
+
+    def adjust_voxel_size_wrt_resolution(self, res_div : float):
+        voxel_sz = torch.tensor([vs*res_div for vs in self.initial_voxel_size[:2]],
+                dtype=torch.float)
+        voxel_sz = torch.round(voxel_sz, decimals=3)
+        self.voxel_size[0] = voxel_sz[0].item()
+        self.voxel_size[1] = voxel_sz[1].item()
 
     def forward(self, data_dict):
         spatial_features_2d = data_dict['spatial_features_2d']

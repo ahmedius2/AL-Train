@@ -12,6 +12,7 @@ from .pv_rcnn_plusplus import PVRCNNPlusPlus
 from .mppnet import MPPNet
 from .mppnet_e2e import MPPNetE2E
 from .pillarnet import PillarNet
+from .pillarnet_mural import PillarNetMURAL
 from .voxelnext import VoxelNeXt
 from .transfusion import TransFusion
 from .bevfusion import BevFusion
@@ -32,6 +33,7 @@ __all__ = {
     'MPPNet': MPPNet,
     'MPPNetE2E': MPPNetE2E,
     'PillarNet': PillarNet,
+    'PillarNetMURAL': PillarNetMURAL,
     'VoxelNeXt': VoxelNeXt,
     'TransFusion': TransFusion,
     'BevFusion': BevFusion,

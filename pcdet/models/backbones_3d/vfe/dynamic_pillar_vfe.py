@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pcdet.ops.norm_funcs.res_aware_bnorm import ResAwareBatchNorm1d
 
 try:
     import torch_scatter
@@ -16,7 +17,9 @@ class PFNLayerV2(nn.Module):
                  in_channels,
                  out_channels,
                  use_norm=True,
-                 last_layer=False):
+                 last_layer=False,
+                 res_divs=[1.0],
+                 norm_method='Batch'):
         super().__init__()
         
         self.last_vfe = last_layer
@@ -26,7 +29,13 @@ class PFNLayerV2(nn.Module):
 
         if self.use_norm:
             self.linear = nn.Linear(in_channels, out_channels, bias=False)
-            self.norm = nn.BatchNorm1d(out_channels, eps=1e-3, momentum=0.01)
+            if norm_method == 'Batch':
+                self.norm = nn.BatchNorm1d(out_channels, eps=1e-3, momentum=0.01)
+            elif norm_method == 'ResAwareBatch':
+                self.norm = ResAwareBatchNorm1d(out_channels, \
+                        num_resolutions=len(res_divs), \
+                        eps=1e-3, momentum=0.01)
+
         else:
             self.linear = nn.Linear(in_channels, out_channels, bias=True)
         
@@ -157,6 +166,9 @@ class DynamicPillarVFESimple2D(VFETemplate):
         if self.with_distance:
             num_point_features += 1
 
+        res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
+        norm_method = self.model_cfg.get('NORM_METHOD', 'Batch')
+
         self.num_filters = self.model_cfg.NUM_FILTERS
         assert len(self.num_filters) > 0
         num_filters = [num_point_features] + list(self.num_filters)
@@ -166,23 +178,41 @@ class DynamicPillarVFESimple2D(VFETemplate):
             in_filters = num_filters[i]
             out_filters = num_filters[i + 1]
             pfn_layers.append(
-                PFNLayerV2(in_filters, out_filters, self.use_norm, last_layer=(i >= len(num_filters) - 2))
+                PFNLayerV2(in_filters, out_filters, self.use_norm,
+                    last_layer=(i >= len(num_filters) - 2),
+                    res_divs=res_divs, norm_method=norm_method)
             )
         self.pfn_layers = nn.ModuleList(pfn_layers)
 
-        self.voxel_x = voxel_size[0]
-        self.voxel_y = voxel_size[1]
-        self.voxel_z = voxel_size[2]
-        self.x_offset = self.voxel_x / 2 + point_cloud_range[0]
-        self.y_offset = self.voxel_y / 2 + point_cloud_range[1]
-        self.z_offset = self.voxel_z / 2 + point_cloud_range[2]
+        self.voxel_params = []
+        for resdiv in res_divs:
+            voxel_size_tmp = [vs * resdiv for vs in voxel_size[:2]]
+            grid_size_tmp = [int(gs / resdiv) for gs in grid_size]
+            self.voxel_params.append((
+                    voxel_size_tmp[0], #voxel_x
+                    voxel_size_tmp[1], #voxel_y
+                    voxel_size[2], #voxel_z
+                    voxel_size_tmp[0] / 2 + point_cloud_range[0], #x_offset
+                    voxel_size_tmp[1] / 2 + point_cloud_range[1], #y_offset
+                    voxel_size[2] / 2 + point_cloud_range[2], #z_offset
+                    grid_size_tmp[0] * grid_size_tmp[1], #scale_xy
+                    grid_size_tmp[1], #scale_y
+                    torch.tensor(grid_size_tmp).cuda(), # grid_size
+                    torch.tensor(voxel_size_tmp + [voxel_size[2]]).cuda()
+            ))
 
-        self.scale_xy = grid_size[0] * grid_size[1]
-        self.scale_y = grid_size[1]
-
-        self.grid_size = torch.tensor(grid_size[:2]).cuda()
-        self.voxel_size = torch.tensor(voxel_size).cuda()
+        self.set_params(0)
         self.point_cloud_range = torch.tensor(point_cloud_range).cuda()
+
+    # Allows switching between different pillar sizes
+    def set_params(self, idx):
+        self.voxel_x, self.voxel_y, self.voxel_z, \
+                self.x_offset, self.y_offset, self.z_offset,  \
+                self.scale_xy, self.scale_y, \
+                self.grid_size, self.voxel_size = self.voxel_params[idx]
+
+    def adjust_voxel_size_wrt_resolution(self, res_idx):
+        self.set_params(res_idx)
 
     def get_output_feature_dim(self):
         return self.num_filters[-1]
