@@ -209,6 +209,8 @@ class PillarRes18BackBone8x(nn.Module):
         super().__init__()
         self.model_cfg = model_cfg
 
+        self.all_dense = self.model_cfg.get('ALL_DENSE', False)
+
         self.res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
         norm_method = self.model_cfg.get('NORM_METHOD', 'Batch')
         if norm_method == 'ResAwareBatch':
@@ -217,48 +219,75 @@ class PillarRes18BackBone8x(nn.Module):
         else:
             norm_fn = partial(nn.BatchNorm1d, eps=1e-3, momentum=0.01)
 
-        self.sparse_shape = grid_size[[1, 0]]
-        
-        block = post_act_block
-        dense_block = post_act_block_dense
-        
-        self.conv1 = spconv.SparseSequential(
-            SparseBasicBlock(32, 32, norm_fn=norm_fn, indice_key='res1'),
-            SparseBasicBlock(32, 32, norm_fn=norm_fn, indice_key='res1'),
-        )
-
-        self.conv2 = spconv.SparseSequential(
-            # [1600, 1408] <- [800, 704]
-            block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'),
-            SparseBasicBlock(64, 64, norm_fn=norm_fn, indice_key='res2'),
-            SparseBasicBlock(64, 64, norm_fn=norm_fn, indice_key='res2'),
-        )
-
-        self.conv3 = spconv.SparseSequential(
-            # [800, 704] <- [400, 352]
-            block(64, 128, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'),
-            SparseBasicBlock(128, 128, norm_fn=norm_fn, indice_key='res3'),
-            SparseBasicBlock(128, 128, norm_fn=norm_fn, indice_key='res3'),
-        )
-
-        self.conv4 = spconv.SparseSequential(
-            # [400, 352] <- [200, 176]
-            block(128, 256, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv4', conv_type='spconv'),
-            SparseBasicBlock(256, 256, norm_fn=norm_fn, indice_key='res4'),
-            SparseBasicBlock(256, 256, norm_fn=norm_fn, indice_key='res4'),
-        )
-
         if norm_method == 'ResAwareBatch':
-            norm_fn = partial(ResAwareBatchNorm2d, num_resolutions=len(self.res_divs), \
+            dense_norm_fn = partial(ResAwareBatchNorm2d, num_resolutions=len(self.res_divs), \
                     eps=1e-3, momentum=0.01)
         else:
-            norm_fn = partial(nn.BatchNorm2d, eps=1e-3, momentum=0.01)
+            dense_norm_fn = partial(nn.BatchNorm2d, eps=1e-3, momentum=0.01)
+
+        self.sparse_shape = grid_size[[1, 0]]
+
+        block = post_act_block
+        dense_block = post_act_block_dense
+        if self.all_dense:
+            self.conv1 = nn.Sequential(
+                BasicBlock(32, 32, norm_fn=dense_norm_fn),
+                BasicBlock(32, 32, norm_fn=dense_norm_fn),
+            )
+
+            self.conv2 = nn.Sequential(
+                # [1600, 1408] <- [800, 704]
+                dense_block(32, 64, 3, norm_fn=dense_norm_fn, stride=2, padding=1),
+                BasicBlock(64, 64, norm_fn=dense_norm_fn),
+                BasicBlock(64, 64, norm_fn=dense_norm_fn),
+            )
+
+            self.conv3 = nn.Sequential(
+                # [800, 704] <- [400, 352]
+                dense_block(64, 128, 3, norm_fn=dense_norm_fn, stride=2, padding=1),
+                BasicBlock(128, 128, norm_fn=dense_norm_fn),
+                BasicBlock(128, 128, norm_fn=dense_norm_fn),
+            )
+
+            self.conv4 = nn.Sequential(
+                # [400, 352] <- [200, 176]
+                dense_block(128, 256, 3, norm_fn=dense_norm_fn, stride=2, padding=1),
+                BasicBlock(256, 256, norm_fn=dense_norm_fn),
+                BasicBlock(256, 256, norm_fn=dense_norm_fn),
+            )
         
+        else:
+            self.conv1 = spconv.SparseSequential(
+                SparseBasicBlock(32, 32, norm_fn=norm_fn, indice_key='res1'),
+                SparseBasicBlock(32, 32, norm_fn=norm_fn, indice_key='res1'),
+            )
+
+            self.conv2 = spconv.SparseSequential(
+                # [1600, 1408] <- [800, 704]
+                block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'),
+                SparseBasicBlock(64, 64, norm_fn=norm_fn, indice_key='res2'),
+                SparseBasicBlock(64, 64, norm_fn=norm_fn, indice_key='res2'),
+            )
+
+            self.conv3 = spconv.SparseSequential(
+                # [800, 704] <- [400, 352]
+                block(64, 128, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'),
+                SparseBasicBlock(128, 128, norm_fn=norm_fn, indice_key='res3'),
+                SparseBasicBlock(128, 128, norm_fn=norm_fn, indice_key='res3'),
+            )
+
+            self.conv4 = spconv.SparseSequential(
+                # [400, 352] <- [200, 176]
+                block(128, 256, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv4', conv_type='spconv'),
+                SparseBasicBlock(256, 256, norm_fn=norm_fn, indice_key='res4'),
+                SparseBasicBlock(256, 256, norm_fn=norm_fn, indice_key='res4'),
+            )
+
         self.conv5 = nn.Sequential(
             # [200, 176] <- [100, 88]
-            dense_block(256, 256, 3, norm_fn=norm_fn, stride=2, padding=1),
-            BasicBlock(256, 256, norm_fn=norm_fn),
-            BasicBlock(256, 256, norm_fn=norm_fn),
+            dense_block(256, 256, 3, norm_fn=dense_norm_fn, stride=2, padding=1),
+            BasicBlock(256, 256, norm_fn=dense_norm_fn),
+            BasicBlock(256, 256, norm_fn=dense_norm_fn),
         )
 
         self.num_point_features = 256
@@ -291,12 +320,16 @@ class PillarRes18BackBone8x(nn.Module):
             spatial_shape=sparse_shape,
             batch_size=batch_size
         )
+
+        if self.all_dense:
+            input_sp_tensor = input_sp_tensor.dense()
         
         x_conv1 = self.conv1(input_sp_tensor)
         x_conv2 = self.conv2(x_conv1)
         x_conv3 = self.conv3(x_conv2)
         x_conv4 = self.conv4(x_conv3)
-        x_conv4 = x_conv4.dense()
+        if not self.all_dense:
+            x_conv4 = x_conv4.dense()
         x_conv5 = self.conv5(x_conv4)
 
         # batch_dict.update({

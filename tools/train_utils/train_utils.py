@@ -40,6 +40,7 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
         cur_data_time = data_timer - end
 
         lr_scheduler.step(accumulated_iter, cur_epoch)
+        model.cur_epoch = cur_epoch # can be used later
 
         try:
             cur_lr = float(optimizer.lr)
@@ -55,7 +56,8 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
         with torch.cuda.amp.autocast(enabled=use_amp):
             loss, tb_dict, disp_dict = model_func(model, batch)
 
-        scaler.scale(loss).backward()
+        if not model.model_cfg.get('BACKWARD_IN_MODEL_FORWARD', False):
+            scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), optim_cfg.GRAD_NORM_CLIP)
         scaler.step(optimizer)

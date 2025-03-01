@@ -245,9 +245,10 @@ class CenterHead(nn.Module):
         target_dicts = self.forward_ret_dict['target_dicts']
 
         tb_dict = {}
-        loss = 0
+        all_losses = []
 
         for idx, pred_dict in enumerate(pred_dicts):
+            cur_dethead_loss = []
             pred_dict['hm'] = self.sigmoid(pred_dict['hm'])
             hm_loss = self.hm_loss_func(pred_dict['hm'], target_dicts['heatmaps'][idx])
             hm_loss *= self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['cls_weight']
@@ -261,12 +262,11 @@ class CenterHead(nn.Module):
             loc_loss = (reg_loss * reg_loss.new_tensor(self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['code_weights'])).sum()
             loc_loss = loc_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['loc_weight']
 
-            loss += hm_loss + loc_loss
+            cur_dethead_loss += [hm_loss, loc_loss]
             tb_dict['hm_loss_head_%d' % idx] = hm_loss.item()
             tb_dict['loc_loss_head_%d' % idx] = loc_loss.item()
 
             if 'iou' in pred_dict or self.model_cfg.get('IOU_REG_LOSS', False):
-
                 batch_box_preds = centernet_utils.decode_bbox_from_pred_dicts(
                     pred_dict=pred_dict,
                     point_cloud_range=self.point_cloud_range, voxel_size=self.voxel_size,
@@ -282,7 +282,7 @@ class CenterHead(nn.Module):
                         mask=target_dicts['masks'][idx],
                         ind=target_dicts['inds'][idx], gt_boxes=target_dicts['target_boxes_src'][idx]
                     )
-                    loss += iou_loss
+                    cur_dethead_loss += [iou_loss]
                     tb_dict['iou_loss_head_%d' % idx] = iou_loss.item()
 
                 if self.model_cfg.get('IOU_REG_LOSS', False):
@@ -293,15 +293,22 @@ class CenterHead(nn.Module):
                     )
                     if target_dicts['masks'][idx].sum().item() != 0:
                         iou_reg_loss = iou_reg_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['loc_weight']
-                        loss += iou_reg_loss
+                        cur_dethead_loss += [iou_reg_loss]
                         tb_dict['iou_reg_loss_head_%d' % idx] = iou_reg_loss.item()
                     else:
-                        loss += (batch_box_preds_for_iou * 0.).sum()
-                        tb_dict['iou_reg_loss_head_%d' % idx] = (batch_box_preds_for_iou * 0.).sum()
+                        cur_dethead_loss += [(batch_box_preds_for_iou * 0.).sum()]
+                        tb_dict['iou_reg_loss_head_%d' % idx] = (batch_box_preds_for_iou * 0.).sum().item()
+            all_losses.append(cur_dethead_loss)
 
+        if self.model_cfg.LOSS_CONFIG.COMBINE_LOSSES:
+            loss = 0
+            for dethead_losses in all_losses:
+                for l in dethead_losses:
+                    loss += l
+            tb_dict['rpn_loss'] = loss.item()
+        else:
+            loss = all_losses
 
-
-        tb_dict['rpn_loss'] = loss.item()
         return loss, tb_dict
 
     def generate_predicted_boxes(self, batch_size, pred_dicts):

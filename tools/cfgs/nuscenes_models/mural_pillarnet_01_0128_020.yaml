@@ -58,7 +58,8 @@ MODEL:
     NAME: PillarNetMURAL
     NAME_POSTFIX: p01_0128_02
     RESOLUTION_DIV: [1.0, 1.28, 2.0]
-    ALTERNATE_ORDER: False
+    INF_RES_INDEX: 0
+    BACKWARD_IN_MODEL_FORWARD: True
 
     VFE:
         NAME: DynamicPillarVFESimple2D
@@ -73,6 +74,7 @@ MODEL:
         NAME: PillarRes18BackBone8x
         NORM_METHOD: 'ResAwareBatch'
         USE_DUMMY_LAYER: False
+        ALL_DENSE: False
 
     BACKBONE_2D:
         NAME: BaseBEVBackboneV1
@@ -124,6 +126,7 @@ MODEL:
                 'loc_weight': 0.25,
                 'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0]
             }
+            COMBINE_LOSSES: True
 
         POST_PROCESSING:
             SCORE_THRESH: 0.1

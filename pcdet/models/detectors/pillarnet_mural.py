@@ -38,7 +38,8 @@ class PillarNetMURAL(Detector3DTemplate):
         self.res_aware_1d_batch_norms, self.res_aware_2d_batch_norms = get_all_resawarebn(self)
         self.res_idx = 0
 
-        self.alternate_order = self.model_cfg.get('ALTERNATE_ORDER', False)
+        self.inf_res_idx = self.model_cfg.get('INF_RES_INDEX', 0)
+        self.res_queue = list(range(self.num_res))
 
     def forward_once(self, batch_dict):
         resdiv = self.resolution_dividers[self.res_idx]
@@ -54,8 +55,8 @@ class PillarNetMURAL(Detector3DTemplate):
         batch_dict = self.dense_head(batch_dict)
 
         if self.training:
-            loss, tb_dict, disp_dict = self.get_training_loss()
-            return loss, tb_dict, disp_dict
+            loss, tb_dict = self.get_training_loss()
+            return loss, tb_dict
         else:
             pred_dicts, recall_dicts = self.post_processing(batch_dict)
             return pred_dicts, recall_dicts
@@ -67,42 +68,37 @@ class PillarNetMURAL(Detector3DTemplate):
         """
         if self.training:
             # Initialize containers for losses and statistics
-            total_loss = 0.0
             tb_dict_combined = {}
-            disp_dict_combined = {}
-
-            if self.alternate_order:
-                res_indices = range(self.num_res - 1, -1, -1)  # High to low
-            else:
-                res_indices = range(self.num_res)  # Low to high
+            disp_dict = {}
             
-            # Process all resolutions and accumulate losses without backpropagation
-            for ridx in res_indices:
+            losses = [0.] * self.num_res
+            keys = list(batch_dict.keys())
+            gt_boxes_copy = batch_dict['gt_boxes']
+
+            for ridx in self.res_queue:
                 self.res_idx = ridx
-                
+
+                new_bd = {k:batch_dict[k] for k in keys}
+                new_bd['gt_boxes'] = gt_boxes_copy.clone()
+
                 # Forward pass for this resolution
-                loss, curr_tb_dict, curr_disp_dict = self.forward_once(batch_dict)
-                
-                # Add to total loss (keeping gradients)
-                total_loss = total_loss + loss
-                
+                loss, curr_tb_dict = self.forward_once(new_bd)
+                scaled_loss = loss / self.num_res
+                scaled_loss.backward()
+
+                losses[ridx] = scaled_loss.detach()
+
                 # Store metrics with resolution prefix for logging
                 res_prefix = f'res_{ridx}_'
                 for k, v in curr_tb_dict.items():
                     tb_dict_combined[res_prefix + k] = v
-                
-                for k, v in curr_disp_dict.items():
-                    disp_dict_combined[res_prefix + k] = v
-            
-            # Add the final loss to the logging dict
-            tb_dict_combined['total_loss'] = total_loss.item()
-            
-            # Return the combined loss (with gradient information intact)
-            ret_dict = {'loss': total_loss}
-            return ret_dict, tb_dict_combined, disp_dict_combined
+
+            total_loss = sum(losses)
+            ret_dict = {'loss': total_loss} # loss wont be used for backward
+            return ret_dict, tb_dict_combined, disp_dict
         else:
             # For inference, just use the first resolution
-            self.res_idx = 0
+            self.res_idx = self.inf_res_idx
             pred_dicts, recall_dicts = self.forward_once(batch_dict)
             return pred_dicts, recall_dicts
 
@@ -110,25 +106,10 @@ class PillarNetMURAL(Detector3DTemplate):
             """
             Calculate training losses while preserving gradient information
             """
-            disp_dict = {}
-            
             # Get the loss tensor from the dense head
-            loss_rpn, tb_dict_head = self.dense_head.get_loss()
+            losses, tb_dict = self.dense_head.get_loss()
             
-            # Create a copy of the dictionary with .item() for logging
-            tb_dict = {
-                'loss_rpn': loss_rpn.item(),
-            }
-            
-            # Add the head's metrics to our logging dict
-            for k, v in tb_dict_head.items():
-                if isinstance(v, torch.Tensor):
-                    tb_dict[k] = v.item()  # Convert tensors to scalars for logging
-                else:
-                    tb_dict[k] = v
-            
-            # Return the loss tensor with gradients intact
-            return loss_rpn, tb_dict, disp_dict
+            return losses, tb_dict
 
     def post_processing(self, batch_dict):
         post_process_cfg = self.model_cfg.POST_PROCESSING
