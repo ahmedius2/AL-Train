@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 import torch
 import tqdm
@@ -120,7 +121,12 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
                     
                     if show_gpu_stat and accumulated_iter % (3 * logger_iter_interval) == 0:
                         # To show the GPU utilization, please install gpustat through "pip install gpustat"
-                        gpu_info = os.popen('gpustat').read()
+                        try:
+                            gpu_info = subprocess.check_output('gpustat', shell=True,
+                                    stderr=subprocess.STDOUT).decode('utf-8', errors='ignore')
+                        except subprocess.CalledProcessError:
+                            gpu_info = "Error retrieving GPU information"
+
                         logger.info(gpu_info)
             else:                
                 pbar.update()

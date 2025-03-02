@@ -6,6 +6,7 @@ import sys
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Final
 from ..model_utils.valor_utils import *
+from ...utils import common_utils
 
 class PillarNetMURAL(Detector3DTemplate):
     def __init__(self, model_cfg, num_class, dataset):
@@ -66,6 +67,9 @@ class PillarNetMURAL(Detector3DTemplate):
         Main forward method that handles both training and inference modes.
         For training, it accumulates losses from all resolutions and does a single backpropagation.
         """
+        batch_dict['points'] = common_utils.pc_range_filter(batch_dict['points'],
+            self.vfe.point_cloud_range)
+
         if self.training:
             # Initialize containers for losses and statistics
             tb_dict_combined = {}
