@@ -11,6 +11,15 @@ class PointPillarScatter(nn.Module):
         self.nx, self.ny, self.nz = grid_size
         assert self.nz == 1
 
+        res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
+        self.grid_sizes = []
+        for resdiv in res_divs:
+            alt_grid_size = [int(gs / resdiv) for gs in grid_size[:2]]
+            self.grid_sizes.append(alt_grid_size)
+
+    def adjust_grid_size_wrt_resolution(self, res_idx):
+        self.nx, self.ny = self.grid_sizes[res_idx]
+
     def forward(self, batch_dict, **kwargs):
         pillar_features, coords = batch_dict['pillar_features'], batch_dict['voxel_coords']
         batch_spatial_features = []
