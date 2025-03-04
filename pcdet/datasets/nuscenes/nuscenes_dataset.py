@@ -10,7 +10,9 @@ from ...utils import common_utils
 from ..dataset import DatasetTemplate
 from pyquaternion import Quaternion
 from PIL import Image
-
+from .nuscenes_utils import get_moved_gt_boxes_, quaternion_yaw, lidar_nusc_box_to_sensor
+from nuscenes.utils.geometry_utils import transform_matrix
+from nuscenes.utils.data_classes import Box
 
 class NuScenesDataset(DatasetTemplate):
     def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None):
@@ -30,6 +32,14 @@ class NuScenesDataset(DatasetTemplate):
         if self.training and self.dataset_cfg.get('BALANCED_RESAMPLING', False):
             self.infos = self.balanced_infos_resampling(self.infos)
 
+        self.nusc = None
+
+    def get_nusc(self):
+        if self.nusc is None:
+            from nuscenes.nuscenes import NuScenes
+            self.nusc = NuScenes(version=self.dataset_cfg.VERSION, dataroot=str(self.root_path), verbose=True)
+        return self.nusc
+
     def include_nuscenes_data(self, mode):
         self.logger.info('Loading NuScenes dataset')
         nuscenes_infos = []
@@ -44,6 +54,32 @@ class NuScenesDataset(DatasetTemplate):
 
         self.infos.extend(nuscenes_infos)
         self.logger.info('Total samples for NuScenes dataset: %d' % (len(nuscenes_infos)))
+
+    def get_moved_gt_boxes(self, sample_tkn, tdiff_musec):
+        nusc = self.get_nusc()
+        bboxes, names, num_lidar_pts = get_moved_gt_boxes_(nusc, sample_tkn, tdiff_musec)
+        bboxes = self.move_bboxes_to_sensor(sample_tkn, bboxes)
+        input_dict = {}
+        info = {'gt_boxes': bboxes, 'gt_names': names, 'num_lidar_pts': num_lidar_pts}
+        data_dict = self.getitem_helper(info, input_dict)
+        return data_dict['gt_boxes']
+
+    def get_ego_pose(self, sample_tkn):
+        nusc = self.get_nusc()
+        sample = nusc.get('sample', sample_tkn)
+        ref_sd_rec = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
+        ref_pose_rec = nusc.get('ego_pose', ref_sd_rec['ego_pose_token'])
+        return np.array(ref_pose_rec['translation']), np.array(ref_pose_rec['rotation'])
+
+    def move_bboxes_to_sensor(self, sample_tkn, boxes_ref):
+        nusc = self.get_nusc()
+
+        box_list = lidar_nusc_box_to_sensor(nusc, boxes_ref, sample_tkn)
+        boxes = np.empty((len(box_list), 7))
+        for i, box in enumerate(box_list):
+            boxes[i] = np.concatenate((box.center, box.wlh, 
+                    [quaternion_yaw(box.orientation)])).astype(float)
+        return boxes
 
     def balanced_infos_resampling(self, infos):
         """
@@ -228,6 +264,9 @@ class NuScenesDataset(DatasetTemplate):
             'metadata': {'token': info['token']}
         }
 
+        return self.getitem_helper(info, input_dict)
+
+    def getitem_helper(self, info, input_dict):
         if 'gt_boxes' in info:
             if self.dataset_cfg.get('FILTER_MIN_POINTS_IN_GT', False):
                 mask = (info['num_lidar_pts'] > self.dataset_cfg.FILTER_MIN_POINTS_IN_GT - 1)
@@ -255,9 +294,9 @@ class NuScenesDataset(DatasetTemplate):
 
     def evaluation(self, det_annos, class_names, **kwargs):
         import json
-        from nuscenes.nuscenes import NuScenes
         from . import nuscenes_utils
-        nusc = NuScenes(version=self.dataset_cfg.VERSION, dataroot=str(self.root_path), verbose=True)
+
+        nusc = self.get_nusc()
         nusc_annos = nuscenes_utils.transform_det_annos_to_nusc_annos(det_annos, nusc)
         nusc_annos['meta'] = {
             'use_camera': False,

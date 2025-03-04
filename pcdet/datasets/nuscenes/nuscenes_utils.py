@@ -485,8 +485,13 @@ def boxes_lidar_to_nusenes(det_info):
         box_list.append(box)
     return box_list
 
-
 def lidar_nusc_box_to_global(nusc, boxes, sample_token):
+    return lidar_nusc_box_helper(nusc, boxes, sample_token, to_global=True)
+
+def lidar_nusc_box_to_sensor(nusc, boxes, sample_token):
+    return lidar_nusc_box_helper(nusc, boxes, sample_token, to_global=False)
+
+def lidar_nusc_box_helper(nusc, boxes, sample_token, to_global=True):
     s_record = nusc.get('sample', sample_token)
     sample_data_token = s_record['data']['LIDAR_TOP']
 
@@ -495,18 +500,30 @@ def lidar_nusc_box_to_global(nusc, boxes, sample_token):
     sensor_record = nusc.get('sensor', cs_record['sensor_token'])
     pose_record = nusc.get('ego_pose', sd_record['ego_pose_token'])
 
-    data_path = nusc.get_sample_data_path(sample_data_token)
     box_list = []
-    for box in boxes:
-        # Move box to ego vehicle coord system
-        box.rotate(Quaternion(cs_record['rotation']))
-        box.translate(np.array(cs_record['translation']))
-        # Move box to global coord system
-        box.rotate(Quaternion(pose_record['rotation']))
-        box.translate(np.array(pose_record['translation']))
-        box_list.append(box)
+    cs_q, cs_t = Quaternion(cs_record['rotation']), np.array(cs_record['translation'])
+    pose_q, pose_t = Quaternion(pose_record['rotation']), np.array(pose_record['translation'])
+    if to_global:
+        for box in boxes:
+            # Move box to ego vehicle coord system
+            box.rotate(cs_q)
+            box.translate(cs_t)
+            # Move box to global coord system
+            box.rotate(pose_q)
+            box.translate(pose_t)
+            box_list.append(box)
+    else:
+        cs_q, cs_t = cs_q.inverse, -cs_t
+        pose_q, pose_t = pose_q.inverse, -pose_t
+        for box in boxes:
+            # Move box to ego vehicle coord system
+            box.translate(pose_t)
+            box.rotate(pose_q)
+            #  Move box to sensor coord system
+            box.translate(cs_t)
+            box.rotate(cs_q)
+            box_list.append(box)
     return box_list
-
 
 def transform_det_annos_to_nusc_annos(det_annos, nusc):
     nusc_annos = {
@@ -586,3 +603,63 @@ def format_nuscene_results(metrics, class_names, version='default'):
     })
 
     return result, details
+
+def get_moved_gt_boxes_(nusc, sample_tkn, tdiff_musec):
+    sample = nusc.get('sample', sample_tkn)
+    ts1 = sample['timestamp']
+    next_sample_tkn = sample['next']
+
+    if next_sample_tkn == '':
+        do_linear_vel_pred_all = True
+    else:
+        do_linear_vel_pred_all = False
+        ts2 = nusc.get('sample', next_sample_tkn)['timestamp']
+        if ts2 < ts1:
+            # There are rare situations where the timestamps in the DB are off so ensure that ts1 < ts2
+            ts2 = ts1 + 500000
+
+        samples_tdiff_musec = ts2 - ts1
+        if samples_tdiff_musec < tdiff_musec:
+            print(f'Time between samples {samples_tdiff_musec} musec is less than'
+                    f' tdiff_musec {tdiff_musec} musec. Truncating...')
+            tdiff_musec = samples_tdiff_musec - 1000
+
+    anno_tokens = sample['anns']
+    moved_bboxes = []
+    moved_bbox_num_lidar_pts = np.empty(len(anno_tokens), dtype=float)
+    moved_bbox_names = []
+
+    tdiff_sec = tdiff_musec * 1e-6
+    i = 0
+    for anno_tkn in anno_tokens:
+        anno = nusc.get('sample_annotation', anno_tkn)
+        if anno['num_lidar_pts'] == 0:
+            continue
+        name = map_name_from_general_to_detection[anno['category_name']]
+        if name == 'ignore':
+            continue
+
+        if do_linear_vel_pred_all or anno['next'] == '':
+            vel = nusc.box_velocity(anno_tkn)
+            if np.any(np.isnan(vel)):
+                vel = np.zeros(3, dtype=float)
+            box = Box(anno['translation'], anno['size'], Quaternion(anno['rotation']))
+            box.translate(vel * tdiff_sec)
+            moved_bboxes.append(box)
+        else:
+            next_anno = nusc.get('sample_annotation', anno['next'])
+            rratio = tdiff_musec / samples_tdiff_musec
+            center = (1.0 - rratio) * np.array(anno['translation'], dtype=float) + \
+                    rratio * np.array(next_anno['translation'], dtype=float)
+            q = Quaternion.slerp(
+                    q0=Quaternion(anno['rotation']),
+                    q1=Quaternion(next_anno['rotation']),
+                    amount=rratio
+            )
+            box = Box(center.tolist(), anno['size'], q)
+            moved_bboxes.append(box)
+        moved_bbox_names.append(name)
+        moved_bbox_num_lidar_pts[i] = anno['num_lidar_pts']
+        i+=1
+
+    return moved_bboxes, np.array(moved_bbox_names), moved_bbox_num_lidar_pts[:i]

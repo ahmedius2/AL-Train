@@ -45,6 +45,14 @@ class DatasetTemplate(torch_data.Dataset):
             self.depth_downsample_factor = self.data_processor.depth_downsample_factor
         else:
             self.depth_downsample_factor = None
+
+        self.data_augmentor_enabled = True
+
+    def disable_data_augmentor(self):
+        self.data_augmentor_enabled = False
+
+    def enable_data_augmentor(self):
+        self.data_augmentor_enabled = True
             
     @property
     def mode(self):
@@ -179,15 +187,16 @@ class DatasetTemplate(torch_data.Dataset):
         if self.training:
             assert 'gt_boxes' in data_dict, 'gt_boxes should be provided for training'
             gt_boxes_mask = np.array([n in self.class_names for n in data_dict['gt_names']], dtype=np.bool_)
-            
+
             if 'calib' in data_dict:
                 calib = data_dict['calib']
-            data_dict = self.data_augmentor.forward(
-                data_dict={
-                    **data_dict,
-                    'gt_boxes_mask': gt_boxes_mask
-                }
-            )
+            if self.data_augmentor_enabled:
+                data_dict = self.data_augmentor.forward(
+                    data_dict={
+                        **data_dict,
+                        'gt_boxes_mask': gt_boxes_mask
+                    }
+                )
             if 'calib' in data_dict:
                 data_dict['calib'] = calib
         data_dict = self.set_lidar_aug_matrix(data_dict)
@@ -205,9 +214,9 @@ class DatasetTemplate(torch_data.Dataset):
         if data_dict.get('points', None) is not None:
             data_dict = self.point_feature_encoder.forward(data_dict)
 
-        data_dict = self.data_processor.forward(
-            data_dict=data_dict
-        )
+            data_dict = self.data_processor.forward(
+                data_dict=data_dict
+            )
 
         if self.training and len(data_dict['gt_boxes']) == 0:
             new_index = np.random.randint(self.__len__())
