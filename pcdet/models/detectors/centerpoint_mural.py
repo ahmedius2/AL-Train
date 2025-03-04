@@ -5,7 +5,7 @@ import os
 import sys
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Final
-from ..model_utils.valor_utils import *
+from ..model_utils.mural_utils import *
 
 class CenterPointMURAL(Detector3DTemplate):
     def __init__(self, model_cfg, num_class, dataset):
