@@ -3,14 +3,15 @@
 mkdir -p tmp_results
 
 CFG_FILE="cfgs/nuscenes_models/mural_pillarnet_016_020_032.yaml"
-CKPT_DIR="../output/nuscenes_models/mural_pillarnet_016_020_032/default/ckpt/" #checkpoint_epoch_1.pth"
+CKPT_DIR="../output/nuscenes_models/mural_pillarnet_016_020_032/default/ckpt" #checkpoint_epoch_1.pth"
 
-NUM_CKPT=$(ls -al $CKPT_DIR/checkpoint_epoch_* | wc | cut -d ' ' -f 7)
+NUM_CKPT=$(ls -al $CKPT_DIR/checkpoint_epoch_* | wc | xargs | cut -d ' ' -f 1)
 LAST_RES_IDX=2
+printf "Num checkpoints: ${NUM_CKPT}\n"
 
 for EPOCH in $(seq 1 $NUM_CKPT)
 do
-	CKPT_FILE=${CKPT_DIR}"checkpoint_epoch_${EPOCH}.pth"
+	CKPT_FILE=${CKPT_DIR}"/checkpoint_epoch_${EPOCH}.pth"
 	for RES_IDX in $(seq 0 $LAST_RES_IDX)
 	do
 		OUT_FILE="./tmp_results/epoch"${EPOCH}"_res"${RES_IDX}".log"
