@@ -71,6 +71,38 @@ class NuScenesDataset(DatasetTemplate):
         ref_pose_rec = nusc.get('ego_pose', ref_sd_rec['ego_pose_token'])
         return np.array(ref_pose_rec['translation']), np.array(ref_pose_rec['rotation'])
 
+    def get_egovel(self, sample_tkn):
+        nusc = self.get_nusc()
+        sample = nusc.get('sample', sample_tkn)
+        if sample['prev'] != '':
+            prev_sample = nusc.get('sample', sample['prev'])
+        else:
+            sample_next = nusc.get('sample', sample['next'])
+            prev_sample = sample
+            sample = sample_next
+
+        timestamps, ego_poses = [], []
+        for smpl in (prev_sample, sample):
+            sd_tkn = smpl['data']['LIDAR_TOP']
+            sample_data = nusc.get('sample_data', sd_tkn)
+            ego_poses.append(nusc.get('ego_pose', sample_data['ego_pose_token']))
+            timestamps.append(sample_data['timestamp'])
+
+        # Cover dataset error
+        if timestamps[0] == 0 or timestamps[1] == 0:
+            timestamps = (0, 500000) # assume 500 ms
+
+        prev_t = np.array(ego_poses[0]['translation'])
+        t = np.array(ego_poses[1]['translation'])
+        prev_ts, ts = timestamps
+        egovel = (t - prev_t) / ((ts - prev_ts) * 1e-6)
+
+        # Convert the global velocity to ego frame
+        rotation = Quaternion(ego_poses[1]['rotation'])
+        egovel = rotation.inverse.rotate(egovel)
+
+        return egovel
+
     def move_bboxes_to_sensor(self, sample_tkn, boxes_ref):
         nusc = self.get_nusc()
 
