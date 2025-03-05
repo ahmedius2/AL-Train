@@ -109,6 +109,8 @@ class CenterHead(nn.Module):
         self.forward_ret_dict = {}
         self.build_losses()
 
+        self.combine_losses = self.model_cfg.LOSS_CONFIG.get('COMBINE_LOSSES', True)
+
     def build_losses(self):
         self.add_module('hm_loss_func', loss_utils.FocalLossCenterNet())
         self.add_module('reg_loss_func', loss_utils.RegLossCenterNet())
@@ -300,7 +302,7 @@ class CenterHead(nn.Module):
                         tb_dict['iou_reg_loss_head_%d' % idx] = (batch_box_preds_for_iou * 0.).sum().item()
             all_losses.append(cur_dethead_loss)
 
-        if self.model_cfg.LOSS_CONFIG.COMBINE_LOSSES:
+        if self.combine_losses:
             loss = 0
             for dethead_losses in all_losses:
                 for l in dethead_losses:
