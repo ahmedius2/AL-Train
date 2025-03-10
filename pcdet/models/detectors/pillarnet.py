@@ -1,5 +1,5 @@
 from .detector3d_template import Detector3DTemplate
-
+from ...utils import common_utils
 
 class PillarNet(Detector3DTemplate):
     def __init__(self, model_cfg, num_class, dataset):
@@ -7,6 +7,8 @@ class PillarNet(Detector3DTemplate):
         self.module_list = self.build_networks()
 
     def forward(self, batch_dict):
+        batch_dict['points'] = common_utils.pc_range_filter(batch_dict['points'],
+            self.module_list[0].point_cloud_range)
         for cur_module in self.module_list:
             batch_dict = cur_module(batch_dict)
 
