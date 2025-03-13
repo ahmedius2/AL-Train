@@ -3,7 +3,7 @@ CLASS_NAMES: ['car','truck', 'construction_vehicle', 'bus', 'trailer',
 
 DATA_CONFIG:
     _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_dataset.yaml
-    POINT_CLOUD_RANGE: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+    POINT_CLOUD_RANGE: [-52.8, -52.8, -5.0, 52.8, 52.8, 3.0]
 
     DATA_AUGMENTOR:
         DISABLE_AUG_LIST: ['placeholder']
@@ -49,19 +49,15 @@ DATA_CONFIG:
         - NAME: shuffle_points
           SHUFFLE_ENABLED: {
             'train': True,
-            'test': False
+            'test': False 
           }
 
         - NAME: transform_points_to_voxels_placeholder
           VOXEL_SIZE: [0.1, 0.1, 0.2]
 
+
 MODEL:
-    NAME: PillarNetMURAL
-    NAME_POSTFIX: p0100_4res
-    # pillar sizes: 0.100 0.128 0.160 0.200
-    RESOLUTION_DIV: [1.0, 1.28, 1.6, 2.0]
-    INF_RES_INDEX: 0
-    BACKWARD_IN_MODEL_FORWARD: False
+    NAME: PillarNet
 
     VFE:
         NAME: DynamicPillarVFESimple2D
@@ -70,28 +66,22 @@ MODEL:
         USE_CLUSTER_XYZ: False
         USE_NORM: True
         NUM_FILTERS: [ 32 ]
-        NORM_METHOD: 'ResAwareBatch'
 
     BACKBONE_3D:
         NAME: PillarRes18BackBone8x
-        NORM_METHOD: 'ResAwareBatch'
-        USE_DUMMY_LAYER: False
-        ALL_DENSE: False
 
     BACKBONE_2D:
-        NAME: BaseBEVBackboneV1
+      NAME: BaseBEVBackboneV1
 
-        LAYER_NUMS: [ 5, 5 ]
-        LAYER_STRIDES: [ 1, 2 ]
-        NUM_FILTERS: [ 256, 256 ]
-        UPSAMPLE_STRIDES: [ 1, 2 ]
-        NUM_UPSAMPLE_FILTERS: [ 128, 128 ]
-        NORM_METHOD: 'ResAwareBatch'
+      LAYER_NUMS: [ 5, 5 ]
+      LAYER_STRIDES: [ 1, 2 ]
+      NUM_FILTERS: [ 256, 256 ]
+      UPSAMPLE_STRIDES: [ 1, 2 ]
+      NUM_UPSAMPLE_FILTERS: [ 128, 128 ]
 
     DENSE_HEAD:
         NAME: CenterHead
         CLASS_AGNOSTIC: False
-        NORM_METHOD: 'ResAwareBatch'
 
         CLASS_NAMES_EACH_HEAD: [
             ['car'], 
@@ -105,7 +95,6 @@ MODEL:
         SHARED_CONV_CHANNEL: 64
         USE_BIAS_BEFORE_NORM: True
         NUM_HM_CONV: 2
-        ENABLE_NORM_IN_ATTR_LAYERS: True
         SEPARATE_HEAD_CFG:
             HEAD_ORDER: ['center', 'center_z', 'dim', 'rot', 'vel']
             HEAD_DICT: {
@@ -128,7 +117,6 @@ MODEL:
                 'loc_weight': 0.25,
                 'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0]
             }
-            COMBINE_LOSSES: True
 
         POST_PROCESSING:
             SCORE_THRESH: 0.1
@@ -145,9 +133,7 @@ MODEL:
 
         EVAL_METRIC: kitti
 
-    ONNX_PATH: deploy_files/onnx_files/mural_p0100_4res
-    DEADLINE_SEC: 10.0
-    METHOD: 6
+
 
 OPTIMIZATION:
     BATCH_SIZE_PER_GPU: 4
