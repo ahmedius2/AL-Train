@@ -53,7 +53,7 @@ DATA_CONFIG:
           }
 
         - NAME: transform_points_to_voxels_placeholder
-          VOXEL_SIZE: [0.1, 0.1, 0.2]
+          VOXEL_SIZE: [0.2, 0.2, 0.2]
 
 
 MODEL:

@@ -3,6 +3,7 @@ CLASS_NAMES: ['car','truck', 'construction_vehicle', 'bus', 'trailer',
 
 DATA_CONFIG:
     _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_dataset.yaml
+      #POINT_CLOUD_RANGE: [-52.8, -52.8, -5.0, 52.8, 52.8, 3.0]
     POINT_CLOUD_RANGE: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
 
     DATA_AUGMENTOR:
@@ -53,7 +54,7 @@ DATA_CONFIG:
           }
 
         - NAME: transform_points_to_voxels_placeholder
-          VOXEL_SIZE: [0.1, 0.1, 0.2]
+          VOXEL_SIZE: [0.16, 0.16, 0.2]
 
 
 MODEL:
