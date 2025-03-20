@@ -6,6 +6,7 @@ import sys
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Final
 from ..model_utils.mural_utils import *
+from ...utils import common_utils
 
 class CenterPointMURAL(Detector3DTemplate):
     def __init__(self, model_cfg, num_class, dataset):
@@ -48,6 +49,8 @@ class CenterPointMURAL(Detector3DTemplate):
         self.inf_res_idx = self.model_cfg.get('INF_RES_INDEX', 0)
         self.res_queue = list(range(self.num_res))
 
+        self.do_backward_in_forward = self.model_cfg.get('BACKWARD_IN_MODEL_FORWARD', True)
+
     def forward_once(self, batch_dict):
         resdiv = self.resolution_dividers[self.res_idx]
         batch_dict['resolution_divider'] = resdiv
@@ -76,6 +79,9 @@ class CenterPointMURAL(Detector3DTemplate):
         Main forward method that handles both training and inference modes.
         For training, it accumulates losses from all resolutions and does a single backpropagation.
         """
+        batch_dict['points'] = common_utils.pc_range_filter(batch_dict['points'],
+            self.vfe.point_cloud_range)
+
         if self.training:
             # Initialize containers for losses and statistics
             tb_dict_combined = {}
@@ -94,9 +100,12 @@ class CenterPointMURAL(Detector3DTemplate):
                 # Forward pass for this resolution
                 loss, curr_tb_dict = self.forward_once(new_bd)
                 scaled_loss = loss / self.num_res
-                scaled_loss.backward()
 
-                losses[ridx] = scaled_loss.detach()
+                if self.do_backward_in_forward:
+                    scaled_loss.backward()
+                    losses[ridx] = scaled_loss.detach()
+                else:
+                    losses[ridx] = scaled_loss
 
                 # Store metrics with resolution prefix for logging
                 res_prefix = f'res_{ridx}_'
