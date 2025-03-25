@@ -21,6 +21,12 @@ class CenterPointMURAL(Detector3DTemplate):
         self.model_cfg.BACKBONE_2D.RESOLUTION_DIV = rd
         self.model_cfg.DENSE_HEAD.RESOLUTION_DIV = rd
 
+        self.res_max_time_lag = model_cfg.get('RES_MAX_TIME_LAG', None)
+        self.enable_dynsweep = (self.res_max_time_lag is not None)
+        if self.enable_dynsweep:
+            assert len(self.res_max_time_lag) == len(rd)
+            self.res_max_time_lag = torch.tensor(self.res_max_time_lag).float().cuda()
+
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.benchmark_limit = 0
 
@@ -79,7 +85,7 @@ class CenterPointMURAL(Detector3DTemplate):
         Main forward method that handles both training and inference modes.
         For training, it accumulates losses from all resolutions and does a single backpropagation.
         """
-        batch_dict['points'] = common_utils.pc_range_filter(batch_dict['points'],
+        points_all = common_utils.pc_range_filter(batch_dict['points'],
             self.vfe.point_cloud_range)
 
         if self.training:
@@ -93,6 +99,12 @@ class CenterPointMURAL(Detector3DTemplate):
 
             for ridx in self.res_queue:
                 self.res_idx = ridx
+
+                if self.enable_dynsweep:
+                    batch_dict['points'] = points_all[points_all[:, -1] < \
+                            self.res_max_time_lag[ridx]]
+                else:
+                    batch_dict['points'] = points_all
 
                 new_bd = {k:batch_dict[k] for k in keys}
                 new_bd['gt_boxes'] = gt_boxes_copy.clone()

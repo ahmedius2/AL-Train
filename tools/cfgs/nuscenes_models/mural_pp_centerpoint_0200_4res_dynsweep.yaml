@@ -3,11 +3,12 @@ CLASS_NAMES: ['car','truck', 'construction_vehicle', 'bus', 'trailer',
 
 DATA_CONFIG:
     _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_dataset.yaml
-
     POINT_CLOUD_RANGE: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+
     DATA_PROCESSOR:
         -   NAME: mask_points_and_boxes_outside_range
             REMOVE_OUTSIDE_BOXES: True
+            SKIP_MASKING_POINTS: True
 
         -   NAME: shuffle_points
             SHUFFLE_ENABLED: {
@@ -16,14 +17,17 @@ DATA_CONFIG:
             }
 
         -   NAME: transform_points_to_voxels_placeholder
-            VOXEL_SIZE: [0.16, 0.16, 8.0]
+            VOXEL_SIZE: [0.2, 0.2, 8.0]
 
 MODEL:
     NAME: CenterPointMURAL
-    NAME_POSTFIX: p016_020_032
-    RESOLUTION_DIV: [1.0, 1.25, 2.0]
+    NAME_POSTFIX: cp0200_4res_dynsweep
+    # pillar sizes: 0.200 0.256 0.320 0.400
+    RESOLUTION_DIV: [1.0, 1.28, 1.6, 2.0]
+    # ~ 10, 8, 6, 4 sweeps
+    RES_MAX_TIME_LAG: [0.525, 0.425, 0.325, 0.225]
     INF_RES_INDEX: 0
-    BACKWARD_IN_MODEL_FORWARD: True
+    BACKWARD_IN_MODEL_FORWARD: False
 
     VFE:
         NAME: DynPillarVFE
@@ -102,7 +106,7 @@ MODEL:
 
         EVAL_METRIC: kitti
 
-    ONNX_PATH: deploy_files/onnx_files/mural_pp_p016_020_032
+    ONNX_PATH: deploy_files/onnx_files/mural_cp0200_4res_dynsweep
     DEADLINE_SEC: 10.0
     METHOD: 10
 
