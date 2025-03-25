@@ -1,12 +1,28 @@
 from .detector3d_template import Detector3DTemplate
-
+from ...utils import common_utils
+import torch
 
 class CenterPoint(Detector3DTemplate):
     def __init__(self, model_cfg, num_class, dataset):
         super().__init__(model_cfg=model_cfg, num_class=num_class, dataset=dataset)
+
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark_limit = 0
+
+        allow_tf32 = True
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+
+        torch.cuda.manual_seed(0)
+
         self.module_list = self.build_networks()
 
     def forward(self, batch_dict):
+        batch_dict['points'] = common_utils.pc_range_filter(batch_dict['points'],
+            self.module_list[0].point_cloud_range) # vfe
+
         for cur_module in self.module_list:
             batch_dict = cur_module(batch_dict)
 
