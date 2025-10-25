@@ -43,7 +43,6 @@ class CenterPointMURAL(Detector3DTemplate):
         if self.bb3d_exist:
             self.vfe, self.backbone_3d, self.map_to_bev, self.backbone_2d, self.dense_head = self.module_list
         else:
-            print(len(self.module_list))
             self.vfe, self.map_to_bev, self.backbone_2d, self.dense_head = self.module_list
 
         self.resolution_dividers = rd
@@ -61,7 +60,8 @@ class CenterPointMURAL(Detector3DTemplate):
         resdiv = self.resolution_dividers[self.res_idx]
         batch_dict['resolution_divider'] = resdiv
         self.vfe.adjust_voxel_size_wrt_resolution(self.res_idx)
-        self.map_to_bev.adjust_grid_size_wrt_resolution(self.res_idx)
+        if not self.bb3d_exist:
+            self.map_to_bev.adjust_grid_size_wrt_resolution(self.res_idx)
         set_bn_resolution(self.res_aware_1d_batch_norms, self.res_idx)
         set_bn_resolution(self.res_aware_2d_batch_norms, self.res_idx)
         self.dense_head.adjust_voxel_size_wrt_resolution(resdiv)

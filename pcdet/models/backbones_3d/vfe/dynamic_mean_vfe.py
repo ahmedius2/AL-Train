@@ -16,20 +16,38 @@ class DynamicMeanVFE(VFETemplate):
         super().__init__(model_cfg=model_cfg)
         self.num_point_features = num_point_features
 
-        self.grid_size = torch.tensor(grid_size).cuda()
-        self.voxel_size = torch.tensor(voxel_size).cuda()
+        res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
+
+        self.voxel_params = []
+        for resdiv in res_divs:
+            voxel_size_tmp = [vs * resdiv for vs in voxel_size[:2]]
+            grid_size_tmp = [int(gs / resdiv) for gs in grid_size[:2]]
+            self.voxel_params.append((
+                    voxel_size_tmp[0], #voxel_x
+                    voxel_size_tmp[1], #voxel_y
+                    voxel_size[2], #voxel_z constant
+                    voxel_size_tmp[0] / 2 + point_cloud_range[0], #x_offset
+                    voxel_size_tmp[1] / 2 + point_cloud_range[1], #y_offset
+                    voxel_size[2] / 2 + point_cloud_range[2], #z_offset
+                    grid_size_tmp[0] * grid_size_tmp[1] * grid_size[2], #scale_xyz
+                    grid_size_tmp[1] * grid_size[2], #scale_yz
+                    grid_size[2], #scale_z
+                    torch.tensor(grid_size_tmp + [grid_size[2]]).cuda(), # grid_size
+                    torch.tensor(voxel_size_tmp + [voxel_size[2]]).cuda()
+            ))
+
         self.point_cloud_range = torch.tensor(point_cloud_range).cuda()
+        self.set_params(0)
 
-        self.voxel_x = voxel_size[0]
-        self.voxel_y = voxel_size[1]
-        self.voxel_z = voxel_size[2]
-        self.x_offset = self.voxel_x / 2 + point_cloud_range[0]
-        self.y_offset = self.voxel_y / 2 + point_cloud_range[1]
-        self.z_offset = self.voxel_z / 2 + point_cloud_range[2]
+    # Allows switching between different pillar sizes
+    def set_params(self, idx):
+        self.voxel_x, self.voxel_y, self.voxel_z, \
+                self.x_offset, self.y_offset, self.z_offset,  \
+                self.scale_xyz, self.scale_yz, self.scale_z, \
+                self.grid_size, self.voxel_size = self.voxel_params[idx]
 
-        self.scale_xyz = grid_size[0] * grid_size[1] * grid_size[2]
-        self.scale_yz = grid_size[1] * grid_size[2]
-        self.scale_z = grid_size[2]
+    def adjust_voxel_size_wrt_resolution(self, res_idx):
+        self.set_params(res_idx)
 
     def get_output_feature_dim(self):
         return self.num_point_features
@@ -39,17 +57,15 @@ class DynamicMeanVFE(VFETemplate):
         """
         Args:
             batch_dict:
-                voxels: (num_voxels, max_points_per_voxel, C)
-                voxel_num_points: optional (num_voxels)
+                points: (batch_idx, x, y, z, i, e)
             **kwargs:
 
         Returns:
             vfe_features: (num_voxels, C)
         """
-        batch_size = batch_dict['batch_size']
+        #batch_size = batch_dict['batch_size']
         points = batch_dict['points'] # (batch_idx, x, y, z, i, e)
 
-        # # debug
         point_coords = torch.floor((points[:, 1:4] - self.point_cloud_range[0:3]) / self.voxel_size).int()
         mask = ((point_coords >= 0) & (point_coords < self.grid_size)).all(dim=1)
         points = points[mask]
@@ -72,5 +88,7 @@ class DynamicMeanVFE(VFETemplate):
         voxel_coords = voxel_coords[:, [0, 3, 2, 1]]
         
         batch_dict['voxel_features'] = points_mean.contiguous()
+        batch_dict['pillar_features']  = batch_dict['voxel_features']
         batch_dict['voxel_coords'] = voxel_coords.contiguous()
+        batch_dict['pillar_coords']  = batch_dict['voxel_coords']
         return batch_dict

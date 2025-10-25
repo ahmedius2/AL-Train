@@ -3,7 +3,7 @@ from functools import partial
 import torch.nn as nn
 
 from ...utils.spconv_utils import replace_feature, spconv
-
+from pcdet.ops.norm_funcs.res_aware_bnorm import ResAwareBatchNorm1d, ResAwareBatchNorm2d
 
 def post_act_block(in_channels, out_channels, kernel_size, indice_key=None, stride=1, padding=0,
                    conv_type='subm', norm_fn=None):
@@ -186,7 +186,14 @@ class VoxelResBackBone8x(nn.Module):
         super().__init__()
         self.model_cfg = model_cfg
         use_bias = self.model_cfg.get('USE_BIAS', None)
-        norm_fn = partial(nn.BatchNorm1d, eps=1e-3, momentum=0.01)
+
+        self.res_divs = model_cfg.get('RESOLUTION_DIV', [1.0])
+        norm_method = self.model_cfg.get('NORM_METHOD', 'Batch')
+        if norm_method == 'ResAwareBatch':
+            norm_fn = partial(ResAwareBatchNorm1d, num_resolutions=len(self.res_divs), \
+                    eps=1e-3, momentum=0.01)
+        else:
+            norm_fn = partial(nn.BatchNorm1d, eps=1e-3, momentum=0.01)
 
         self.sparse_shape = grid_size[::-1] + [1, 0, 0]
 
@@ -240,6 +247,13 @@ class VoxelResBackBone8x(nn.Module):
             'x_conv4': 128
         }
 
+    def get_inds_dividers(self, tile_size_voxels):
+        # numbers here are determined with respect to strides
+        return [tile_size_voxels / float(s) for s in (2,4,8)]
+
+    def sparse_outp_downscale_factor(self):
+        return 8 # 3 convs with stride of 2
+
     def forward(self, batch_dict):
         """
         Args:
@@ -253,10 +267,13 @@ class VoxelResBackBone8x(nn.Module):
         """
         voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']
         batch_size = batch_dict['batch_size']
+
+        resdiv = batch_dict.get('resolution_divider', 1)
+        sparse_shape = [self.sparse_shape[0]] + [int(s/resdiv) for s in self.sparse_shape[1:]]
         input_sp_tensor = spconv.SparseConvTensor(
             features=voxel_features,
             indices=voxel_coords.int(),
-            spatial_shape=self.sparse_shape,
+            spatial_shape=sparse_shape,
             batch_size=batch_size
         )
         x = self.conv_input(input_sp_tensor)
